@@ -1,0 +1,289 @@
+<?php
+    $servername = "192.168.1.55";
+    $username = "root";
+    $password = "ge0";
+    $dbname = "GeoLoc";
+
+    $conn = new mysqli($servername, $username, $password, $dbname);
+
+    if ($conn->connect_error) {
+        die("Connection failed: " . $conn->connect_error);
+    }
+    $sql = "SELECT session FROM GeoLoc.coords GROUP BY session ORDER BY id DESC LIMIT 0,1";
+    $result = $conn->query($sql);
+    while($row = $result->fetch_assoc()) {
+        $session=$row['session'];
+    }
+    $sql = "SELECT ip, coordx, coordy FROM GeoLoc.coords WHERE session='".$session."'";
+    $result = $conn->query($sql);
+    $i=0;
+        $mx=0;
+        $my=0;
+    while($row = $result->fetch_assoc()) {
+        $nodes[$i]['ip']=$row["ip"];
+        $nodes[$i]['x']=$row["coordx"];
+        if($nodes[$i]['x']>$mx){
+            $mx=$nodes[$i]['x'];
+        }
+        $nodes[$i]['y']=$row["coordy"];
+        if($nodes[$i]['y']>$my){
+            $my=$nodes[$i]['y'];
+        }
+        $i++;
+    }
+
+?>
+
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+    body {font-family: "Inconsolata";}
+</style>
+<body>
+<center>
+<svg width="900" height="650" style="border:1px solid"></svg>
+</center>
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<link href="https://fonts.googleapis.com/css?family=Inconsolata" rel="stylesheet">
+<script>
+
+    //var svg = d3.select("svg"),
+    //    width = +svg.attr("width"),
+    //    height = +svg.attr("height");
+    
+    
+    var margin = {top: 25, right: 25, bottom: 25, left: 25},
+        width = 900 - margin.left - margin.right,
+        height = 650 - margin.top - margin.bottom;
+        
+        console.log(height);
+    
+    var svg = d3.select("svg")
+    .append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+    .append("g")
+      .attr("transform",
+            "translate(" + margin.left + "," + margin.top + ")");
+    
+   // Add X axis
+   var x = d3.scaleLinear().domain([0, <?php echo $mx;?>]).range([0, width]);
+    svg
+      .append("g")
+      .attr("transform", "translate(0," + height + ")")
+      .call(d3.axisBottom(x));
+
+    // Add Y axis
+    var y = d3.scaleLinear().domain([0, <?php echo $my;?>]).range([ height, 0]);
+    svg
+      .append("g")
+      .call(d3.axisLeft(y));
+
+    // Add X axis label:
+    svg.append("text")
+        .attr("text-anchor", "end")
+        .attr("x", width)
+        .attr("y", height + margin.top + 20)
+        .text("X axis title");
+
+    // Y axis label:
+    svg.append("text")
+        .attr("text-anchor", "end")
+        .attr("transform", "rotate(-90)")
+        .attr("y", -margin.left+20)
+        .attr("x", -margin.top)
+        .text("Y axis title")
+   
+    var color = d3.scaleOrdinal(d3.schemeCategory20);
+        
+    var simulation = d3.forceSimulation()
+        .force("link", d3.forceLink().id(function(d) { return d.id; }))
+        //.force("charge", d3.forceManyBody().strength(-200))
+            .force('charge', d3.forceManyBody()
+          .strength(-200)
+          .theta(0.8)
+          .distanceMax(150)
+        )
+    //         .force('collide', d3.forceCollide()
+    //       .radius(d => 40)
+    //       .iterations(2)
+    //     )
+        .force("center", d3.forceCenter(width / 2, height / 2));
+
+
+/*const graph = {
+  "nodes": [
+    {"id": "1", "group": 1, "fx": 200, "fy": 200},
+    {"id": "2", "group": 2},
+    {"id": "4", "group": 3},
+    {"id": "8", "group": 4},
+    {"id": "16", "group": 5},
+    {"id": "11", "group": 1},
+    {"id": "12", "group": 2},
+    {"id": "14", "group": 3},
+    {"id": "18", "group": 4},
+    {"id": "116", "group": 5}
+  ],
+  "links": [
+    {"source": "1", "target": "2", "value": 1},
+    {"source": "2", "target": "4", "value": 1},
+    {"source": "4", "target": "8", "value": 1},
+    {"source": "4", "target": "8", "value": 1},
+    {"source": "8", "target": "16", "value": 1},
+    {"source": "16", "target": "1", "value": 1}
+  ]
+}*/
+  
+  
+  
+  d3.json("nodes.php", function(error, graph) {
+    if (error) throw error;
+
+    var link = svg.append("g")
+        .style("stroke", "#aaa")
+        .attr("class", "links")
+        .selectAll("line")
+        .data(graph.links)
+        .enter().append("line")
+        .attr("stroke-width", function(d) { return Math.sqrt(d.value); });
+
+    var node = svg.append("g")
+        .attr("class", "nodes")
+        .selectAll("circle")
+        .data(graph.nodes)
+        .enter().append("circle")
+        .attr("r", 8)
+        .attr("fill", function(d) { return color(d.group); })
+        .call(d3.drag()
+        .on("start", dragstarted)
+        .on("drag", dragged)
+        .on("end", dragended));
+          
+    var label = svg.append("g")
+        .attr("class", "labels")
+        .selectAll("text")
+        .data(graph.nodes)
+        .enter().append("text")
+        .attr("class", "label")
+        .text(function(d) { return d.name; });
+
+    node.append("title")
+        .text(function(d) { return d.name; });
+
+    simulation
+        .nodes(graph.nodes)
+        .on("tick", ticked);
+
+    simulation.force("link")
+        .links(graph.links);
+
+    function ticked() {
+        link
+            .attr("x1", function(d) { return d.source.x; })
+            .attr("y1", function(d) { return d.source.y; })
+            .attr("x2", function(d) { return d.target.x; })
+            .attr("y2", function(d) { return d.target.y; });
+
+        node
+            .attr("cx", function(d) { return d.x; })
+            .attr("cy", function(d) { return d.y; });
+
+        label
+            .attr("x", function(d) { return (d.x+5); })
+            .attr("y", function (d) { return (d.y-8); })
+            .style("font-size", "12px").style("fill", "#333");
+    }
+  });
+  
+  
+  
+  
+  
+  
+  /*
+  
+function run(graph) {
+  
+  graph.links.forEach(function(d){
+//     d.source = d.source_id;
+//     d.target = d.target_id;
+  });
+
+  var link = svg.append("g")
+                .style("stroke", "#aaa")
+                .selectAll("line")
+                .data(graph.links)
+                .enter().append("line");
+
+  var node = svg.append("g")
+            .attr("class", "nodes")
+  .selectAll("circle")
+            .data(graph.nodes)
+  .enter().append("circle")
+          .attr("r", 2)
+          .call(d3.drag()
+              .on("start", dragstarted)
+              .on("drag", dragged)
+              .on("end", dragended));
+  
+  var label = svg.append("g")
+      .attr("class", "labels")
+      .selectAll("text")
+      .data(graph.nodes)
+      .enter().append("text")
+        .attr("class", "label")
+        .text(function(d) { return d.id; });
+
+  simulation
+      .nodes(graph.nodes)
+      .on("tick", ticked);
+
+  simulation.force("link")
+      .links(graph.links);
+
+  function ticked() {
+    link
+        .attr("x1", function(d) { return d.source.x; })
+        .attr("y1", function(d) { return d.source.y; })
+        .attr("x2", function(d) { return d.target.x; })
+        .attr("y2", function(d) { return d.target.y; });
+
+    node
+         .attr("r", 16)
+         .style("fill", "#efefef")
+         .style("stroke", "#424242")
+         .style("stroke-width", "1px")
+         .attr("cx", function (d) { return d.x+5; })
+         .attr("cy", function(d) { return d.y-3; });
+    
+    label
+            .attr("x", function(d) { return d.x; })
+            .attr("y", function (d) { return d.y; })
+            .style("font-size", "10px").style("fill", "#333");
+  }
+}
+*/
+function dragstarted(d) {
+  if (!d3.event.active) simulation.alphaTarget(0.3).restart()
+  //d.fx = d.x
+  //d.fy = d.y
+//  simulation.fix(d);
+}
+
+function dragged(d) {
+  //d.fx = d3.event.x
+  //d.fy = d3.event.y
+//  simulation.fix(d, d3.event.x, d3.event.y);
+}
+
+function dragended(d) {
+  //d.fx = d3.event.x
+  //d.fy = d3.event.y
+  if (!d3.event.active) simulation.alphaTarget(0);
+  //simulation.unfix(d);
+}
+  
+//run(graph)
+
+</script>
+</body></html>

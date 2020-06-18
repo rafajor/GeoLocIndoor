@@ -1,0 +1,11 @@
+[Unit]
+   Description=SPI server
+   Wants=network-online.target
+   After=network-online.target
+ [Service]
+   Type=simple
+   User=pi
+   WorkingDirectory=/home/pi/GeoLocIndoor/glserver/
+   ExecStart=/usr/bin/python3 spi_server.py
+ [Install]
+   WantedBy=multi-user.target
